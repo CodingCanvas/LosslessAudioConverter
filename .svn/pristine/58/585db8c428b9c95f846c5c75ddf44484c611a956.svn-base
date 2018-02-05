@@ -1,0 +1,335 @@
+﻿using LosslessAudioConverter.Commands;
+using LosslessAudioConverter.Helpers;
+using LosslessAudioConverter.Model;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
+using WinForms = System.Windows.Forms;
+
+namespace LosslessAudioConverter.ViewModel
+{
+    class DirectorySelectionViewModel : ViewModelBase
+    {
+        #region Private Members
+        private static readonly object _cancelLock = new object();
+        private static readonly object _progressLock = new object();
+
+        private MusicLibraryConverter _musicConverter;
+
+        private CancellationTokenSource _cancelConversionTokenSource = null;
+        #endregion
+
+        #region Public Properties
+
+        public ICommand StartConversionCommand { get; internal set; }
+        public ICommand CancelConversionCommand { get; internal set; }
+
+        public ICommand ChooseSourceCommand { get; internal set; }
+        public ICommand ChooseTargetCommand { get; internal set; }
+
+        public ICommand CloseApplicationCommand { get; internal set; }
+        public ICommand StartOverCommand { get; internal set; }
+
+        public bool DirectoriesAreValid { get { return _musicConverter.IsReadyForConversion(); } }
+
+        public string SourceDirectory
+        {
+            get
+            {
+                return _musicConverter.SourceDirectory ?? "";
+            }
+            set
+            {
+                if (!string.Equals((_musicConverter.SourceDirectory ?? ""), value,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    //TODO: make sure it's valid???  Or do that elsewhere?  Hmm...
+                    _musicConverter.SourceDirectory = value;
+                    RaisePropertyChanged("SourceDirectory");
+                    RaisePropertyChanged("DirectoriesAreValid");
+                }
+            }
+        }
+
+        public string TargetDirectory
+        {
+            get
+            {
+                return _musicConverter.TargetDirectory ?? "";
+            }
+            set
+            {
+                if (!string.Equals((_musicConverter.TargetDirectory ?? ""), value,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    //TODO: make sure it's valid???  Or do that elsewhere?  Hmm...
+                    _musicConverter.TargetDirectory = value;
+                    RaisePropertyChanged("TargetDirectory");
+                    RaisePropertyChanged("DirectoriesAreValid");
+                }
+            }
+        }
+
+        private int _progressCurrent = 0;
+        public int ProgressCurrent
+        {
+            get
+            {
+                return _progressCurrent;
+            }
+            set
+            {
+                if (value == _progressCurrent) return;
+
+                _progressCurrent = value;
+                RaisePropertyChanged("ProgressCurrent");
+                RaisePropertyChanged("ProgressText");
+            }
+        }
+
+        private int _progressTotal = 100;
+        public int ProgressTotal
+        {
+            get
+            {
+                return _progressTotal;
+            }
+            set
+            {
+                if (value == _progressTotal) return;
+
+                _progressTotal = value;
+                RaisePropertyChanged("ProgressTotal");
+                RaisePropertyChanged("ProgressText");
+            }
+        }
+
+        private ApplicationState _currentApplicationState;
+        public ApplicationState CurrentApplicationState
+        {
+            get { return _currentApplicationState; }
+            set
+            {
+                if (_currentApplicationState == value) { return; }
+
+                _currentApplicationState = value;
+                RaisePropertyChanged("CurrentApplicationState");
+            }
+        }
+
+        private const string Operation_Inactive = "Nothing's Happening, yo";
+        private const string Operation_Converting = "Converting Lossless Files";
+        private const string Operation_Copying = "Copying Lossy Files";
+        private const string Operation_Cancelling = "Cancelling...";
+
+        private string _activeOperationTitle = Operation_Inactive;
+        private string ActiveOperationTitle
+        {
+            get { return _activeOperationTitle; }
+            set
+            {
+                if (object.ReferenceEquals(value, _activeOperationTitle) || value == _activeOperationTitle)
+                    return;
+
+                //if (_activeOperationTitle == Operation_Cancelling && value != Operation_Inactive)
+                //    return;
+
+                _activeOperationTitle = value;
+                RaisePropertyChanged("ProgressText");
+            }
+        }
+
+        public string ProgressText
+        {
+            get
+            {
+                if (ActiveOperationTitle == Operation_Cancelling) return Operation_Cancelling;
+                if (ActiveOperationTitle == Operation_Inactive) return "";
+
+                return String.Format("{0}: {1}/{2}", _activeOperationTitle, ProgressCurrent, ProgressTotal);
+            }
+        }
+
+        #endregion
+
+        #region Constructors
+
+        public DirectorySelectionViewModel()
+        {
+            _musicConverter = new MusicLibraryConverter();
+
+            //TODO: MUST include directory validation in all these "CanExecute" commands.
+            //For now, we enable/disable buttons based on whether the conversion command is executing or not.
+
+            StartConversionCommand = new AwaitableDelegateCommand(StartConversion_Async);
+            CancelConversionCommand = new DelegateCommand(CancelConversion, () => !StartConversionCommand.CanExecute(null));
+
+            ChooseSourceCommand = new DelegateCommand(ChooseSource, () => StartConversionCommand.CanExecute(null));
+            ChooseTargetCommand = new DelegateCommand(ChooseTarget, () => StartConversionCommand.CanExecute(null));
+
+            CloseApplicationCommand = new DelegateCommand(() => Application.Current.MainWindow.Close());
+            StartOverCommand = new DelegateCommand(StartApplicationOver);
+
+            CurrentApplicationState = ApplicationState.Starting;
+        }
+
+        #endregion
+
+        #region Public Methods
+
+        public void OnWindowClosing(object sender, CancelEventArgs args)
+        {
+            //Check that 
+            bool changeMadeToSettings = false;
+            
+            if (Directory.Exists(SourceDirectory) &&
+                !Properties.Settings.Default.previousSourceFolder.Equals(SourceDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                Properties.Settings.Default.previousSourceFolder = SourceDirectory;
+                changeMadeToSettings = true;
+            }
+
+            if (Directory.Exists(TargetDirectory) &&
+                !Properties.Settings.Default.previousTargetFolder.Equals(TargetDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                Properties.Settings.Default.previousTargetFolder = TargetDirectory;
+                changeMadeToSettings = true;
+            }
+
+            if (changeMadeToSettings)
+                Properties.Settings.Default.Save();
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        private void StartApplicationOver()
+        {
+            throw new NotImplementedException();
+        }
+
+        private async Task StartConversion_Async()
+        {
+            lock (_cancelLock)
+            {
+                if (_cancelConversionTokenSource != null) return; //Don't run this multiple times, yo.
+
+                _cancelConversionTokenSource = new CancellationTokenSource();
+            }
+
+            CurrentApplicationState = ApplicationState.Converting;
+
+            //Reset progress
+            ProgressCurrent = 0;
+            ProgressTotal = 100;
+
+            //Define the progress updates here, not in the task.  This is because the 'Progress' class captures the current thread context to make updates work as expected.
+            IProgress<ProgressUpdate> conversionProgress = new Progress<ProgressUpdate>(ConversionProgressCallback);
+            IProgress<ProgressUpdate> copyingProgress = new Progress<ProgressUpdate>(CopyingProgressCallback);
+
+            await Task.Run(() => { _musicConverter.ConvertLosslessFiles_Parallel(_cancelConversionTokenSource.Token, conversionProgress, copyingProgress); }, _cancelConversionTokenSource.Token);
+
+            bool canceledEarly = false;
+            lock (_cancelLock)
+            {
+                canceledEarly = _cancelConversionTokenSource.IsCancellationRequested;
+
+                _cancelConversionTokenSource.Dispose();
+                _cancelConversionTokenSource = null; //The operation has finished, so set the cancellation source to null to signify it as being such that it is.
+            }
+
+            //TODO: Finalize everything!  We're done here!
+            if (canceledEarly)
+            {
+                ActiveOperationTitle = "Successfully Canceled";
+                CurrentApplicationState = ApplicationState.CompleteCancelled;
+            }
+            else
+            {
+                ActiveOperationTitle = Operation_Inactive;
+                CurrentApplicationState = ApplicationState.CompleteSuccess;
+            }
+        }
+
+        private void CancelConversion()
+        {
+            lock (_cancelLock)
+            {
+                if (_cancelConversionTokenSource == null) return; //Task isn't running, nothing to do.
+
+                ActiveOperationTitle = Operation_Cancelling;
+                CurrentApplicationState = ApplicationState.Cancelling;
+                _cancelConversionTokenSource.Cancel();
+            }
+        }
+
+        private void ConversionProgressCallback(ProgressUpdate update)
+        {
+            lock (_progressLock)
+            {
+                this.ActiveOperationTitle = Operation_Converting;
+                this.CurrentApplicationState = ApplicationState.Converting;
+                this.ProgressCurrent = Math.Max(update.Progress, this.ProgressCurrent);
+
+                this.ProgressTotal = update.Total;
+
+                RaisePropertyChanged("OperationCanBeCancelled");
+            }
+        }
+
+        private void CopyingProgressCallback(ProgressUpdate update)
+        {
+            lock (_progressLock)
+            {
+                this.ActiveOperationTitle = Operation_Copying;
+                this.CurrentApplicationState = ApplicationState.Copying;
+                this.ProgressCurrent = Math.Max(update.Progress, this.ProgressCurrent);
+                this.ProgressTotal = update.Total;
+
+                RaisePropertyChanged("OperationCanBeCancelled");
+            }
+        }
+
+        private void ChooseTarget()
+        {
+            using (WinForms.FolderBrowserDialog folderBrowser = new WinForms.FolderBrowserDialog())
+            {
+                folderBrowser.ShowNewFolderButton = true;
+                folderBrowser.Description = "Select Output Music Directory";
+                folderBrowser.RootFolder = Environment.SpecialFolder.MyComputer;
+
+                if (folderBrowser.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                    return;
+
+                TargetDirectory = folderBrowser.SelectedPath;
+            }
+        }
+
+        private void ChooseSource()
+        {
+            using (WinForms.FolderBrowserDialog folderBrowser = new WinForms.FolderBrowserDialog())
+            {
+                folderBrowser.ShowNewFolderButton = false;
+                folderBrowser.Description = "Select Lossless Music Directory";
+                folderBrowser.RootFolder = Environment.SpecialFolder.MyComputer;
+
+                if (folderBrowser.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                    return;
+
+                SourceDirectory = folderBrowser.SelectedPath;
+            }
+        }
+
+        #endregion
+    }
+}

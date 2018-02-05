@@ -1,0 +1,34 @@
+audio convert visual flow:
+
+Loading screen?
+	Just a timer/logo?
+	
+Intro screen for first-timers?
+	Tell user what this does, how to use it, and a "don't show again" checkbox?
+	Include a settings wizard for...
+		- formats to convert (just lossless, lossy, other?)
+		- formats to just copy?
+		- This would be nice, look impressive, be nice for users, feel familiar.
+		
+Choose your directories (include a hamburger icon for changing settings
+	Show how many files will be converted
+	Show how many songs will be copied
+	Show how many other files will be copied
+	
+Scan/analyze progress/results
+	How much work will be done?
+	Will we reconvert files that already exist?  Skip?
+	
+Operation progress
+	Progress bars (I like #done/#total)
+		one for conversion, one for copying
+		
+Everything's done
+	Output results
+		Size before, size after (let user know the benefit!)
+		Conversion time
+		# converted, # copied, #skipped
+	'Close' button
+	'Start over' button
+	'Donate' button
+	'Look at my profile' button

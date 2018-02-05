@@ -1,0 +1,71 @@
+﻿<Window x:Class="LosslessAudioConverter.ViewModel.MainWindowView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:LosslessAudioConverter.ViewModel" 
+        xmlns:myViews="clr-namespace:LosslessAudioConverter.View" 
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+        xmlns:material="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:helpers="clr-namespace:LosslessAudioConverter.Helpers"
+        mc:Ignorable="d"
+        WindowStartupLocation="CenterScreen"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        TextElement.FontWeight="Regular"
+        TextElement.FontSize="13"
+        TextOptions.TextFormattingMode="Ideal" 
+        TextOptions.TextRenderingMode="Auto"   
+        Background="{DynamicResource MaterialDesignPaper}"
+        Title="Muzik Cumpress" Height="220" Width="450" 
+        WindowStyle="SingleBorderWindow"
+        FontFamily="pack://application:,,,/MaterialDesignThemes.Wpf;component/Resources/Roboto/#Roboto"
+        ResizeMode="CanMinimize"
+        Name="MainWindow">
+    <Window.Resources>
+        <!--ViewModels-->
+        <vm:DirectorySelectionViewModel x:Key="DirectorySelectionViewModel"/>
+
+        <!--Converters-->
+        <BooleanToVisibilityConverter x:Key="BoolToViz" />
+        <helpers:ApplicationStateToIndexConverter x:Key="StateToIndex" />
+    </Window.Resources>
+    <material:Transitioner
+        SelectedIndex="{Binding Path=CurrentApplicationState, Mode=OneWay, Converter={StaticResource StateToIndex}}"
+        Margin="5, 10"
+        d:DataContext="{d:DesignInstance Type=vm:DirectorySelectionViewModel, 
+            IsDesignTimeCreatable=True}">
+
+        <material:TransitionerSlide Name="Slide1" Background="{DynamicResource MaterialDesignPaper}"
+            OpeningEffect="{material:TransitionEffect Kind=SlideInFromBottom}">
+            <material:TransitionerSlide.ForwardWipe >
+                <material:SlideOutWipe />
+            </material:TransitionerSlide.ForwardWipe>
+            <material:TransitionerSlide.BackwardWipe >
+                <material:SlideOutWipe />
+            </material:TransitionerSlide.BackwardWipe>
+            <myViews:DirectorySelectionPanel  />
+        </material:TransitionerSlide>
+
+        <material:TransitionerSlide Name="Slide2" Background="{DynamicResource MaterialDesignPaper}"
+            OpeningEffect="{material:TransitionEffect Kind=SlideInFromBottom}">
+            <material:TransitionerSlide.ForwardWipe >
+                <material:SlideOutWipe />
+            </material:TransitionerSlide.ForwardWipe>
+            <material:TransitionerSlide.BackwardWipe >
+                <material:SlideOutWipe />
+            </material:TransitionerSlide.BackwardWipe>
+            <myViews:ConversionProgressPanel/>
+        </material:TransitionerSlide>
+
+        <material:TransitionerSlide Name="Slide3" Background="{DynamicResource MaterialDesignPaper}"
+            OpeningEffect="{material:TransitionEffect Kind=SlideInFromBottom}">
+            <material:TransitionerSlide.ForwardWipe >
+                <material:SlideOutWipe />
+            </material:TransitionerSlide.ForwardWipe>
+            <material:TransitionerSlide.BackwardWipe >
+                <material:SlideOutWipe />
+            </material:TransitionerSlide.BackwardWipe>
+            <myViews:ConversionCompletePanel/>
+        </material:TransitionerSlide>
+
+    </material:Transitioner>
+</Window>

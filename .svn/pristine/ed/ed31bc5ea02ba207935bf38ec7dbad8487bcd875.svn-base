@@ -1,0 +1,67 @@
+﻿<UserControl x:Class="LosslessAudioConverter.View.DirectorySelectionPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:vm="clr-namespace:LosslessAudioConverter.ViewModel" 
+             xmlns:Validation="clr-namespace:LosslessAudioConverter.Helpers"
+             xmlns:material="http://materialdesigninxaml.net/winfx/xaml/themes"
+             mc:Ignorable="d" 
+             d:DesignHeight="200" d:DesignWidth="300">
+    <UserControl.Resources>
+        <vm:DirectorySelectionViewModel x:Key="DirectorySelectionViewModel"/>
+        <BooleanToVisibilityConverter x:Key="BoolToViz" />
+    </UserControl.Resources>
+
+    <Grid d:DataContext="{d:DesignInstance Type=vm:DirectorySelectionViewModel, 
+        IsDesignTimeCreatable=True}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition  />
+        </Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal" Grid.Column="1" Grid.Row="0"
+                    Margin="0, 0, 0, 5">
+            <Button Style="{DynamicResource MaterialDesignRaisedLightButton}"
+                DockPanel.Dock="Left" Width="100" Height="32" Margin="0, 0, 10, 0"
+                Command="{Binding Path=ChooseSourceCommand}">
+                Source...
+            </Button>
+            <TextBlock VerticalAlignment="Center">
+                <TextBlock.Text>
+                    <Binding Path="SourceDirectory" UpdateSourceTrigger="PropertyChanged">
+                        <Binding.ValidationRules>
+                            <Validation:ValidDirectoryRule />
+                        </Binding.ValidationRules>
+                    </Binding>
+                </TextBlock.Text>
+            </TextBlock>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Grid.Column="1" Grid.Row="1" 
+                    Margin="0, 5, 0, 10">
+            <Button Style="{DynamicResource MaterialDesignRaisedLightButton}"
+                DockPanel.Dock="Left" Width="100" Height="32" Margin="0, 0, 10, 0"
+                Command="{Binding Path=ChooseTargetCommand}">
+                Target...
+            </Button>
+            <TextBlock VerticalAlignment="Center">
+                <TextBlock.Text>
+                    <Binding Path="TargetDirectory" UpdateSourceTrigger="PropertyChanged">
+                        <Binding.ValidationRules>
+                            <Validation:ValidDirectoryRule />
+                        </Binding.ValidationRules>
+                    </Binding>
+                </TextBlock.Text>
+            </TextBlock>
+        </StackPanel>
+        <Button Grid.Column="1" Grid.Row="5" MinHeight="50" Width="200"
+                VerticalAlignment="Bottom"
+                Command="{Binding Path=StartConversionCommand}"
+                IsEnabled="{Binding Path=DirectoriesAreValid}"
+                Content="Convert!" />
+                <!--Visibility="{Binding IsEnabled, RelativeSource={RelativeSource Self}, Converter={StaticResource BoolToViz}}"-->
+    </Grid>
+</UserControl>

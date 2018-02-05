@@ -1,0 +1,302 @@
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+
+namespace LosslessAudioConverter.Model
+{
+    public class MusicLibraryConverter
+    {
+        public string SourceDirectory { get; set; }
+        public string TargetDirectory { get; set; }
+
+        public MusicLibraryConverter()
+        {
+            //Get the default music directories from the app's settings file.
+            string defaultSourceFolder = Properties.Settings.Default.previousSourceFolder.ToString();
+            string defaultTargetFolder = Properties.Settings.Default.previousTargetFolder.ToString();
+
+            //if no default source folder exists, use window's default music directory as the default
+            defaultSourceFolder = string.IsNullOrWhiteSpace(defaultSourceFolder)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.MyMusic, Environment.SpecialFolderOption.None)
+                : defaultSourceFolder;
+
+            defaultSourceFolder = (Directory.Exists(defaultSourceFolder))
+                ? defaultSourceFolder
+                : "";
+
+            defaultTargetFolder = (Directory.Exists(defaultTargetFolder))
+                ? defaultTargetFolder
+                : "";
+
+            //At this point, we either have valid, existing paths, or the values will be empty strings.  Either way, pump 'em into the GUI as defaults.  Boom!
+            SourceDirectory = defaultSourceFolder;
+            TargetDirectory = defaultTargetFolder;
+
+            //TODO: Add settings for conversion options, quality settings, other user preferences.
+            //also consider adding previous window size/location info for consistent user experience.
+        }
+
+        //TODO: Make this configurable.
+        private const string LossyOutputExtension = ".ogg";
+        private static string GetFileExtension(string filePath)
+        {
+            int lastDotIndex = filePath.LastIndexOf('.');
+            int fileExtensionLength = filePath.Length - lastDotIndex;
+
+            return filePath.Substring(lastDotIndex, fileExtensionLength);
+        }
+
+        /// <summary>
+        /// Key: file extension, starting with a '.'
+        /// value: true if extension is supported, false otherwise.
+        /// </summary>
+        /// <typeparam name=""></typeparam>
+        /// <param name=""></param>
+        /// <returns></returns>
+        private static readonly IReadOnlyDictionary<string, bool> LosslessAudioDecodeSupport = new ReadOnlyDictionary<string, bool>(new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+        {
+            {".flac" , true},
+            {".wav" , true},
+            {".ape" , false},
+            {".alac" , false},
+        });
+
+        /// <summary>
+        /// Acts as a whitelist of audio formats.
+        /// Key: file extension, starting with '.'
+        /// Value: whether we support decoding (we can always copy)
+        /// </summary>
+        private static readonly IReadOnlyDictionary<string, bool> LossyAudioEncodeSupport = new ReadOnlyDictionary<string, bool>(new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+        {
+            //Normal, reasonable, virtuous stuff
+            {".mp3" , false},
+            
+            //Apple stuff, for the image-slaves and shiny-object addicts
+            {".aac" , false},
+            {".mp4" , false},
+            {".3gp" , false},
+            {".m4a" , false},
+            {".m4b" , false},
+            {".m4p" , false},
+            {".m4r" , false},
+            {".m4v" , false},
+            
+            //Microsoft stuff, the the old and decrepit.
+            {".wma" , false},
+            
+            //Vorbis stuff, for the sophisticated pallate
+            {".ogg" , true},
+            {".oga" , false},
+            {".opus" , false},
+            {".mpc" , false},
+            {".mp+" , false},
+            {".mpp" , false},
+        });
+
+        /*
+         * For now, don't bother with handling non-audio files at all.  Just copy all of them.  .cue and .m3u files may be worthless, but just chill for now, k?  CHILL!!
+         */
+
+        ///// <summary>
+        ///// Key: file extension of files we want to copy/move/otherwise handle as per the user's request.
+        ///// Value: not used.  Readonly hashsets are tough to come by, and I'm much too lazy to implement my own.
+        ///// </summary>
+        //private static readonly IReadOnlyDictionary<string, bool> NonAudioCopyWhitelist = new ReadOnlyDictionary<string, bool>(new Dictionary<string, bool>()
+        //{
+        //    {".jpg" , true},
+        //    {".bmp" , true},
+        //    {".png" , false},
+        //    {".alac" , false},
+        //});
+
+        private static readonly object _musicConversionLock = new object();
+        public void ConvertLosslessFiles_Parallel(CancellationToken cancelToken, IProgress<ProgressUpdate> conversionProgress = null, IProgress<ProgressUpdate> copyingProgress = null)
+        {
+            var srcLosslessAudioFiles = new ConcurrentQueue<string>();
+            var srcLossyAudioFiles = new ConcurrentQueue<string>();
+            var srcNonAudioFiles = new ConcurrentQueue<string>();
+
+            foreach (string sourceFilePath in Directory.EnumerateFiles(SourceDirectory, "*.*", SearchOption.AllDirectories))
+            {
+                string extension = GetFileExtension(sourceFilePath);
+                //Fancy inline voodoo.  I did it this way to be silly, not because it's at all readable.
+                (LosslessAudioDecodeSupport.ContainsKey(extension) ? srcLosslessAudioFiles : srcLossyAudioFiles).Enqueue(sourceFilePath);
+            }
+
+            HandleLosslessFiles_Parallel(srcLosslessAudioFiles, conversionProgress, cancelToken);
+            HandleLossyFiles_Serial(srcLossyAudioFiles, copyingProgress, cancelToken);
+        }
+
+        private void HandleLosslessFiles_Parallel(ConcurrentQueue<string> losslessSourceFiles, IProgress<ProgressUpdate> conversionProgress, CancellationToken cancelToken)
+        {
+            int losslessSourceFileCount = losslessSourceFiles.Count; //Capture this before we dequeue.
+
+            //Callback for zero progress.
+            int convertedFileCount = 0;
+            if (!cancelToken.IsCancellationRequested && conversionProgress != null)
+                conversionProgress.Report(ProgressUpdate.Create(convertedFileCount, losslessSourceFileCount));
+
+            //Create one long running task per logical core.
+            //This generally speeds up conversion quite a lot
+            Task[] conversionTasks = new Task[Environment.ProcessorCount];
+
+            for (int i = 0; i < conversionTasks.Length; i++)
+            {
+                conversionTasks[i] = new Task(
+                    () => ConversionWorkThread(losslessSourceFiles, losslessSourceFileCount, conversionProgress, cancelToken, ref convertedFileCount),
+                    cancelToken,
+                    TaskCreationOptions.LongRunning);
+            }
+
+            foreach (var conversionTask in conversionTasks.Where(task => !task.IsCanceled))
+            {
+                try
+                {
+                    conversionTask.Start();
+                }
+                catch (TaskCanceledException)
+                {
+                    //do...... nothing?  Kind of a lazy way to handle early cancellations.  Perfect.  I love nasty solutions.
+                }
+            }
+
+            //Maybe we just don't allow cancellations until we've started the tasks?  Like the 'cancel' method has to wait for this list of tasks to get started?
+            Task.WaitAll(conversionTasks.Where(task => !task.IsCanceled && !task.IsFaulted).ToArray());
+
+            foreach (var conversionTask in conversionTasks)
+                conversionTask.Dispose();
+        }
+
+        /// <summary>
+        /// Simply copies all src files to the targetdirectory while maintaining folder structure.
+        /// Also provides progress updates (data-binding-friendly) and respects cancellation requests.
+        /// </summary>
+        /// <param name="srcFilesToCopy"></param>
+        /// <param name="copyingProgress"></param>
+        /// <param name="cancelToken"></param>
+        private void HandleLossyFiles_Serial(ConcurrentQueue<string> srcFilesToCopy, IProgress<ProgressUpdate> copyingProgress, CancellationToken cancelToken)
+        {
+            //Report zero copying progress
+            int copiedFileCount = 0;
+            if (!cancelToken.IsCancellationRequested && copyingProgress != null)
+                copyingProgress.Report(ProgressUpdate.Create(copiedFileCount, srcFilesToCopy.Count));
+
+            foreach (var fileToCopy in srcFilesToCopy)
+            {
+                if (cancelToken.IsCancellationRequested) return;
+
+                string fullOutputPath = GetAbsoluteTargetPath(fileToCopy, TargetDirectory, fileIsLossless: false);
+                EnsureDirectoryExistsForFile(fullOutputPath);
+
+                //TODO: We need option to skip/reconvert/pre-delete files that already exist.  For now, though, just skip files we've already completed.  Nice.
+                if (!File.Exists(fullOutputPath))
+                {
+                    File.Copy(fileToCopy, fullOutputPath, overwrite: false);
+                }
+
+                //Update the file copying progress now!  Yeah!! :D
+                copiedFileCount++;
+                if (copyingProgress != null) copyingProgress.Report(ProgressUpdate.Create(copiedFileCount, srcFilesToCopy.Count));
+            }
+        }
+
+
+        /// <summary>
+        /// Simply exists to define a task that converts files from a single concurrent queue.
+        /// The assumption is that this will be run in its own task/thread, probably with other tasks running simultaneously.
+        /// For load-balancing, all tasks draw files from a single concurrent queue.
+        /// </summary>
+        /// <param name="losslessSourceFiles">ConcurrentQueue that points to all the files we need to convert.  Makes task-assignment trivial.  Nice.</param>
+        /// <param name="losslessSourceFileCount">Send the total number of files to convert.  Can't simply count the workqueue dueue to multithreaded uncertainty.</param>
+        /// <param name="conversionProgress">Pings the progress, if it exists.  Works will data-bound values on the gui.</param>
+        /// <param name="cancelToken">Used to respect cancellation requests.  Optional.</param>
+        /// <param name="convertedFileCount">Used to update a single counter among many potential threads.</param>
+        private void ConversionWorkThread(ConcurrentQueue<string> losslessSourceFiles, int losslessSourceFileCount, IProgress<ProgressUpdate> conversionProgress, CancellationToken cancelToken, ref int convertedFileCount)
+        {
+            using (IAudioConverter converter = new AudioConverter_Sox())
+            {
+                string absoluteSourcePath;
+                while (losslessSourceFiles.TryDequeue(out absoluteSourcePath))
+                {
+                    if (cancelToken.IsCancellationRequested)
+                    {
+                        break; //don't run the rest of the code block after breaking the parallel loop, yo'.
+                    }
+
+                    string absoluteTargetPath = GetAbsoluteTargetPath(absoluteSourcePath, TargetDirectory, fileIsLossless: true);
+                    EnsureDirectoryExistsForFile(absoluteTargetPath);
+
+                    //Copy or convert only if we need to.
+                    if (!File.Exists(absoluteTargetPath))
+                        converter.ConvertAudioFile_Synchronous(absoluteSourcePath, absoluteTargetPath);
+
+                    //Whether we converted the file, or skipped it because it already exists, call the progress update!  Boom!
+                    Interlocked.Increment(ref convertedFileCount);
+                    if (conversionProgress != null) conversionProgress.Report(ProgressUpdate.Create(convertedFileCount, losslessSourceFileCount));
+                }
+            }
+        }
+
+        /// <summary>
+        /// If the given path's directory doesn't exist, we creat it in a threadsafe manner.  How nice of us.
+        /// </summary>
+        /// <param name="fullFilePath"></param>
+        private static void EnsureDirectoryExistsForFile(string fullFilePath)
+        {
+            string targetDirectory = new FileInfo(fullFilePath).DirectoryName;
+
+            if (!Directory.Exists(targetDirectory))
+            {
+                //Don't concurrently create directories, ya' dingus.  Lock that shit down.
+                lock (_musicConversionLock)
+                {
+                    Directory.CreateDirectory(targetDirectory);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Warning: Fancy string-splicing ahead.
+        /// </summary>
+        /// <param name="absoluteSourcePath"></param>
+        /// <param name="targetRootDir"></param>
+        /// <param name="fileIsLossless"></param>
+        /// <returns></returns>
+        private string GetAbsoluteTargetPath(string absoluteSourcePath, string targetRootDir, bool fileIsLossless)
+        {
+            string relativeSourcePath = absoluteSourcePath.Substring(SourceDirectory.Length, absoluteSourcePath.Length - SourceDirectory.Length);
+
+            if (fileIsLossless)
+            {
+                //replace file extension
+                int lastDotIndex = absoluteSourcePath.LastIndexOf('.');
+                int losslesssExtensionLength = absoluteSourcePath.Length - lastDotIndex;
+
+                return targetRootDir + relativeSourcePath.Substring(0, relativeSourcePath.Length - losslesssExtensionLength) + LossyOutputExtension;
+            }
+            else
+            {
+                //No file extension replacement needed.  Just return the same file type in the target directory
+                return targetRootDir + relativeSourcePath;
+            }
+        }
+
+        public bool IsReadyForConversion()
+        {
+            return
+                !string.IsNullOrWhiteSpace(SourceDirectory) &&
+                !string.IsNullOrWhiteSpace(TargetDirectory) &&
+                Path.IsPathRooted(SourceDirectory) &&
+                Path.IsPathRooted(TargetDirectory) &&
+                Directory.Exists(SourceDirectory) &&
+                Directory.Exists(TargetDirectory);
+        }
+    }
+}
