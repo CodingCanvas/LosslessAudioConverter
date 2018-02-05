@@ -15,7 +15,7 @@
         TextOptions.TextFormattingMode="Ideal" 
         TextOptions.TextRenderingMode="Auto"   
         Background="{DynamicResource MaterialDesignPaper}"
-        Title="LosslessAudioConverter" Height="220" Width="450" 
+        Title="LosslessAudioConverter (Alpha)" Height="220" Width="450" 
         WindowStyle="SingleBorderWindow"
         FontFamily="pack://application:,,,/MaterialDesignThemes.Wpf;component/Resources/Roboto/#Roboto"
         ResizeMode="CanMinimize"
