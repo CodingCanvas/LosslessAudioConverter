@@ -35,7 +35,7 @@
             IsDesignTimeCreatable=True}">
 
         <material:TransitionerSlide Name="Slide1" Background="{DynamicResource MaterialDesignPaper}"
-            OpeningEffect="{material:TransitionEffect Kind=SlideInFromBottom}">
+             OpeningEffect="{material:TransitionEffect Kind=ExpandIn}">
             <material:TransitionerSlide.ForwardWipe >
                 <material:SlideOutWipe />
             </material:TransitionerSlide.ForwardWipe>
